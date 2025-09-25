@@ -15,8 +15,10 @@
             fortnightlyBudget: 0,
             days: []
         };
-        const geminiApiKey = typeof GEMINI_API_KEY !== 'undefined' ? GEMINI_API_KEY : '';
-        const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${geminiApiKey}`;
+        // The API key is now handled securely by a Vercel serverless function.
+        // It is no longer needed in this client-side code.
+        const geminiApiKey = '';
+        const geminiApiUrl = `/api/get-insights`;
 
         // Helper functions
         const formatDate = (date) => {
@@ -150,44 +152,31 @@
             insightsOutput.classList.remove('hidden');
             
             try {
-                if (!geminiApiKey) {
-                    insightsOutput.textContent = 'API key is missing. Please add it to your Vercel environment variables.';
-                    return;
-                }
-
                 if (spendingData.days.length === 0) {
                     insightsOutput.textContent = 'No spending data found to analyze.';
                     return;
                 }
 
-                const prompt = {
-                    contents: [{
-                        parts: [{
-                            text: `You are a helpful financial assistant. Your goal is to provide a concise, insightful, and actionable summary of a user's spending over a two-week period. Focus on identifying patterns and providing practical advice.
+                const promptText = `You are a helpful financial assistant. Your goal is to provide a concise, insightful, and actionable summary of a user's spending over a two-week period. Focus on identifying patterns and providing practical advice.
 
-                            A user's fortnightly budget is $${parseFloat(spendingData.fortnightlyBudget).toFixed(2)}. Here is the spending data, including planned and actual expenses:
-                            ${JSON.stringify(spendingData.days)}
+                    A user's fortnightly budget is $${parseFloat(spendingData.fortnightlyBudget).toFixed(2)}. Here is the spending data, including planned and actual expenses:
+                    ${JSON.stringify(spendingData.days)}
 
-                            Please provide a brief summary of the spending habits and a single, practical piece of advice. Keep the response to a maximum of three sentences. Start the response with "Based on your spending, here is a summary:"`
-                        }]
-                    }],
-                    systemInstruction: {
-                        parts: [{ text: "You are a helpful financial assistant." }]
-                    },
-                };
+                    Please provide a brief summary of the spending habits and a single, practical piece of advice. Keep the response to a maximum of three sentences. Start the response with "Based on your spending, here is a summary:"`;
 
                 const response = await fetch(geminiApiUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(prompt)
+                    body: JSON.stringify({ prompt: promptText })
                 });
 
                 if (!response.ok) {
-                    throw new Error(`API error: ${response.statusText}`);
+                    const errorData = await response.json();
+                    throw new Error(`API error: ${response.statusText} - ${errorData.error}`);
                 }
 
                 const result = await response.json();
-                const insights = result?.candidates?.[0]?.content?.parts?.[0]?.text || 'No insights available.';
+                const insights = result?.insights || 'No insights available.';
                 insightsOutput.textContent = insights;
 
             } catch (error) {
