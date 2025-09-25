@@ -11,7 +11,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot, collection, query, addDoc, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection, query, getDoc } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
 
         setLogLevel('debug');
@@ -25,7 +25,6 @@
         let userId = null;
 
         const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=`;
-        const docRef = doc(db, 'artifacts', appId, 'users', 'userId_placeholder', 'spending_plan', 'fortnightly_budget');
 
         document.addEventListener('DOMContentLoaded', async () => {
             const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
@@ -39,12 +38,10 @@
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 userId = user.uid;
-                // Update the docRef with the actual userId
                 const actualDocRef = doc(db, 'artifacts', appId, 'users', userId, 'spending_plan', 'fortnightly_budget');
                 document.getElementById('user-id').textContent = `User ID: ${userId}`;
                 initializeSpendingTracker(actualDocRef);
             } else {
-                // User is signed out.
                 console.log("User is signed out.");
             }
         });
@@ -68,26 +65,23 @@
                     renderSpendingPlan(data.days);
                     updateBudgetDisplays(data.fortnightlyBudget, data.days);
                 } else {
-                    // Set a default plan starting from Thursday, September 25th with pre-filled expenses
                     const startDate = new Date('2025-09-25T00:00:00');
                     const initialDays = [];
                     for (let i = 0; i < 14; i++) {
                         const date = new Date(startDate);
                         date.setDate(startDate.getDate() + i);
-                        
-                        const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, ..., 4 = Thursday
+                        const dayOfWeek = date.getDay(); 
                         const expenses = [];
 
-                        if (dayOfWeek === 1) { // Monday
+                        if (dayOfWeek === 1) {
                             expenses.push({ name: 'Fishbowl with kids', planned: '35', actual: '35' });
-                        } else if (dayOfWeek === 2 || dayOfWeek === 3 || dayOfWeek === 4) { // Tuesday, Wednesday, Thursday
+                        } else if (dayOfWeek === 2 || dayOfWeek === 3 || dayOfWeek === 4) {
                             expenses.push(
                                 { name: 'Matcha', planned: '5.50', actual: '5.50' },
                                 { name: 'Luneburger Sandwich', planned: '7.50', actual: '7.50' },
                                 { name: 'Bubble Tea', planned: '7.50', actual: '7.50' }
                             );
                         }
-
                         initialDays.push({
                             date: date.toISOString().split('T')[0],
                             expenses: expenses
@@ -151,21 +145,21 @@
                 remainingBudgetDisplay.textContent = `$${remainingBudget.toFixed(2)}`;
             };
 
-            // Making functions global so they can be called from the HTML buttons
             window.addDay = async () => {
-                const docSnap = await getDocs(collection(db, 'artifacts', appId, 'users', userId, 'spending_plan'));
-                const currentData = docSnap.docs[0].data();
-                const days = currentData.days;
-                const lastDate = days.length > 0 ? new Date(days[days.length - 1].date) : new Date();
-                const newDate = new Date(lastDate);
-                newDate.setDate(newDate.getDate() + 1);
+                const docSnap = await getDoc(actualDocRef);
+                if (docSnap.exists()) {
+                    const currentData = docSnap.data();
+                    const days = currentData.days;
+                    const lastDate = days.length > 0 ? new Date(days[days.length - 1].date) : new Date();
+                    const newDate = new Date(lastDate);
+                    newDate.setDate(newDate.getDate() + 1);
 
-                const newDay = {
-                    date: newDate.toISOString().split('T')[0],
-                    expenses: []
-                };
-
-                await setDoc(actualDocRef, { ...currentData, days: [...days, newDay] });
+                    const newDay = {
+                        date: newDate.toISOString().split('T')[0],
+                        expenses: []
+                    };
+                    await setDoc(actualDocRef, { ...currentData, days: [...days, newDay] });
+                }
             };
 
             window.addExpenseModal = (dayIndex) => {
@@ -189,28 +183,34 @@
             };
 
             const addExpense = async (dayIndex, name, planned, actual) => {
-                const docSnap = await getDocs(collection(db, 'artifacts', appId, 'users', userId, 'spending_plan'));
-                const currentData = docSnap.docs[0].data();
-                const days = currentData.days;
-                days[dayIndex].expenses.push({ name, planned, actual });
-                await setDoc(actualDocRef, { ...currentData, days });
+                const docSnap = await getDoc(actualDocRef);
+                if (docSnap.exists()) {
+                    const currentData = docSnap.data();
+                    const days = currentData.days;
+                    days[dayIndex].expenses.push({ name, planned, actual });
+                    await setDoc(actualDocRef, { ...currentData, days });
+                }
             };
 
             window.deleteExpense = async (dayIndex, expenseIndex) => {
-                const docSnap = await getDocs(collection(db, 'artifacts', appId, 'users', userId, 'spending_plan'));
-                const currentData = docSnap.docs[0].data();
-                const days = currentData.days;
-                days[dayIndex].expenses.splice(expenseIndex, 1);
-                await setDoc(actualDocRef, { ...currentData, days });
+                const docSnap = await getDoc(actualDocRef);
+                if (docSnap.exists()) {
+                    const currentData = docSnap.data();
+                    const days = currentData.days;
+                    days[dayIndex].expenses.splice(expenseIndex, 1);
+                    await setDoc(actualDocRef, { ...currentData, days });
+                }
             };
 
             document.getElementById('fortnightlyBudgetForm').addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const budget = parseFloat(fortnightlyBudgetInput.value);
                 if (!isNaN(budget)) {
-                    const docSnap = await getDocs(collection(db, 'artifacts', appId, 'users', userId, 'spending_plan'));
-                    const currentData = docSnap.docs[0].data();
-                    await setDoc(actualDocRef, { ...currentData, fortnightlyBudget: budget });
+                    const docSnap = await getDoc(actualDocRef);
+                    if (docSnap.exists()) {
+                        const currentData = docSnap.data();
+                        await setDoc(actualDocRef, { ...currentData, fortnightlyBudget: budget });
+                    }
                 }
             });
 
@@ -222,8 +222,12 @@
                 insightsOutput.classList.remove('hidden');
                 
                 try {
-                    const docSnap = await getDocs(collection(db, 'artifacts', appId, 'users', userId, 'spending_plan'));
-                    const data = docSnap.docs[0].data();
+                    const docSnap = await getDoc(actualDocRef);
+                    if (!docSnap.exists()) {
+                        insightsOutput.textContent = 'No spending data found to analyze.';
+                        return;
+                    }
+                    const data = docSnap.data();
 
                     const prompt = {
                         contents: [{
