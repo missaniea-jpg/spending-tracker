@@ -11,7 +11,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot, collection, query, getDoc } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
 
         setLogLevel('debug');
@@ -23,8 +23,10 @@
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
         let userId = null;
+        let actualDocRef;
 
-        const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=`;
+        const geminiApiKey = typeof GEMINI_API_KEY !== 'undefined' ? GEMINI_API_KEY : '';
+        const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${geminiApiKey}`;
 
         document.addEventListener('DOMContentLoaded', async () => {
             const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
@@ -38,19 +40,20 @@
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 userId = user.uid;
-                const actualDocRef = doc(db, 'artifacts', appId, 'users', userId, 'spending_plan', 'fortnightly_budget');
+                actualDocRef = doc(db, 'artifacts', appId, 'users', userId, 'spending_plan', 'fortnightly_budget');
                 document.getElementById('user-id').textContent = `User ID: ${userId}`;
-                initializeSpendingTracker(actualDocRef);
+                initializeSpendingTracker();
             } else {
                 console.log("User is signed out.");
             }
         });
 
         const formatDate = (date) => {
-            return date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+            if (!date) return 'N/A';
+            return new Date(date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
         };
 
-        const initializeSpendingTracker = (actualDocRef) => {
+        const initializeSpendingTracker = () => {
             const fortnightlyBudgetInput = document.getElementById('fortnightlyBudget');
             const dailySpendingContainer = document.getElementById('dailySpendingContainer');
             const totalBudgetDisplay = document.getElementById('totalBudgetDisplay');
@@ -65,47 +68,34 @@
                     renderSpendingPlan(data.days);
                     updateBudgetDisplays(data.fortnightlyBudget, data.days);
                 } else {
-                    const startDate = new Date('2025-09-25T00:00:00');
-                    const initialDays = [];
-                    for (let i = 0; i < 14; i++) {
-                        const date = new Date(startDate);
-                        date.setDate(startDate.getDate() + i);
-                        const dayOfWeek = date.getDay(); 
-                        const expenses = [];
-
-                        if (dayOfWeek === 1) {
-                            expenses.push({ name: 'Fishbowl with kids', planned: '35', actual: '35' });
-                        } else if (dayOfWeek === 2 || dayOfWeek === 3 || dayOfWeek === 4) {
-                            expenses.push(
-                                { name: 'Matcha', planned: '5.50', actual: '5.50' },
-                                { name: 'Luneburger Sandwich', planned: '7.50', actual: '7.50' },
-                                { name: 'Bubble Tea', planned: '7.50', actual: '7.50' }
-                            );
-                        }
-                        initialDays.push({
-                            date: date.toISOString().split('T')[0],
-                            expenses: expenses
-                        });
-                    }
-                    setDoc(actualDocRef, { fortnightlyBudget: 600, days: initialDays });
+                    fortnightlyBudgetInput.value = 0;
+                    renderSpendingPlan([]);
+                    updateBudgetDisplays(0, []);
                 }
             });
 
             const renderSpendingPlan = (days) => {
                 dailySpendingContainer.innerHTML = '';
                 days.forEach((day, dayIndex) => {
-                    const dayCard = document.createElement('div');
-                    dayCard.className = 'bg-white p-6 rounded-lg shadow-md mb-4';
-                    
                     const totalPlanned = day.expenses.reduce((sum, exp) => sum + parseFloat(exp.planned || 0), 0);
                     const totalActual = day.expenses.reduce((sum, exp) => sum + parseFloat(exp.actual || 0), 0);
                     
+                    const dayCard = document.createElement('div');
+                    dayCard.className = 'bg-white p-6 rounded-lg shadow-md mb-4';
+                    
                     dayCard.innerHTML = `
                         <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-xl font-semibold text-gray-800">${formatDate(new Date(day.date))}</h3>
-                            <button onclick="addExpenseModal(${dayIndex})" class="bg-blue-500 text-white text-sm px-4 py-2 rounded-full hover:bg-blue-600 transition-colors duration-200">
-                                Add Expense
-                            </button>
+                            <h3 class="text-xl font-semibold text-gray-800">${formatDate(day.date)}</h3>
+                            <div class="flex items-center space-x-2">
+                                <button onclick="addExpenseModal(${dayIndex})" class="bg-blue-500 text-white text-sm px-4 py-2 rounded-full hover:bg-blue-600 transition-colors duration-200">
+                                    Add Expense
+                                </button>
+                                <button onclick="deleteDay(${dayIndex})" class="text-gray-400 hover:text-red-500 transition-colors duration-200 ml-4">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm6 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" />
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
                         <p class="text-sm text-gray-500 mb-2">Planned: $${totalPlanned.toFixed(2)} | Actual: $${totalActual.toFixed(2)}</p>
                         <ul class="space-y-2">
@@ -114,8 +104,8 @@
                                     <div class="flex-1">
                                         <p class="text-gray-700">${exp.name}</p>
                                         <p class="text-xs text-gray-500">
-                                            Planned: <span class="text-green-600 font-medium">$${exp.planned}</span> | 
-                                            Actual: <span class="${exp.actual > exp.planned ? 'text-red-600' : 'text-gray-600'} font-medium">$${exp.actual}</span>
+                                            Planned: <span class="text-green-600 font-medium">$${parseFloat(exp.planned).toFixed(2)}</span> | 
+                                            Actual: <span class="${parseFloat(exp.actual) > parseFloat(exp.planned) ? 'text-red-600' : 'text-gray-600'} font-medium">$${parseFloat(exp.actual).toFixed(2)}</span>
                                         </p>
                                     </div>
                                     <button onclick="deleteExpense(${dayIndex}, ${expIndex})" class="text-gray-400 hover:text-red-500 transition-colors duration-200 ml-4">
@@ -126,11 +116,6 @@
                                 </li>
                             `).join('')}
                         </ul>
-                        <div class="flex justify-between items-center mt-4">
-                            <button onclick="addExpenseModal(${dayIndex})" class="bg-gray-200 text-gray-700 text-sm px-4 py-2 rounded-full hover:bg-gray-300 transition-colors duration-200">
-                                Add New Expense
-                            </button>
-                        </div>
                     `;
                     dailySpendingContainer.appendChild(dayCard);
                 });
@@ -141,25 +126,57 @@
                     return sum + day.expenses.reduce((s, exp) => s + parseFloat(exp.actual || 0), 0);
                 }, 0);
                 const remainingBudget = totalBudget - totalActualSpending;
-                totalBudgetDisplay.textContent = `$${totalBudget.toFixed(2)}`;
+                totalBudgetDisplay.textContent = `$${parseFloat(totalBudget).toFixed(2)}`;
                 remainingBudgetDisplay.textContent = `$${remainingBudget.toFixed(2)}`;
             };
 
-            window.addDay = async () => {
+            window.deleteDay = async (dayIndex) => {
                 const docSnap = await getDoc(actualDocRef);
                 if (docSnap.exists()) {
                     const currentData = docSnap.data();
                     const days = currentData.days;
-                    const lastDate = days.length > 0 ? new Date(days[days.length - 1].date) : new Date();
-                    const newDate = new Date(lastDate);
-                    newDate.setDate(newDate.getDate() + 1);
-
-                    const newDay = {
-                        date: newDate.toISOString().split('T')[0],
-                        expenses: []
-                    };
-                    await setDoc(actualDocRef, { ...currentData, days: [...days, newDay] });
+                    days.splice(dayIndex, 1);
+                    await setDoc(actualDocRef, { ...currentData, days });
                 }
+            };
+
+            window.openAddDayModal = async () => {
+                const docSnap = await getDoc(actualDocRef);
+                let defaultDate = new Date(); // Defaults to today
+
+                if (docSnap.exists() && docSnap.data().lastAddedDate) {
+                    const lastDate = new Date(docSnap.data().lastAddedDate);
+                    // Add one day to the last added date
+                    lastDate.setDate(lastDate.getDate() + 1);
+                    defaultDate = lastDate;
+                }
+
+                // Format the date to YYYY-MM-DD for the input field
+                const formattedDate = defaultDate.toISOString().split('T')[0];
+                document.getElementById('dayDateInput').value = formattedDate;
+                document.getElementById('addDayModal').classList.remove('hidden');
+            };
+            
+            window.saveNewDay = async () => {
+                const selectedDate = document.getElementById('dayDateInput').value;
+                const docSnap = await getDoc(actualDocRef);
+                const newDay = {
+                    date: selectedDate,
+                    expenses: []
+                };
+
+                if (docSnap.exists()) {
+                    const currentData = docSnap.data();
+                    const days = currentData.days;
+                    await setDoc(actualDocRef, { ...currentData, days: [...days, newDay], lastAddedDate: selectedDate });
+                } else {
+                    await setDoc(actualDocRef, { fortnightlyBudget: 0, days: [newDay], lastAddedDate: selectedDate });
+                }
+                closeDayModal();
+            };
+
+            window.closeDayModal = () => {
+                document.getElementById('addDayModal').classList.add('hidden');
             };
 
             window.addExpenseModal = (dayIndex) => {
@@ -168,11 +185,13 @@
                 expenseForm.onsubmit = async (event) => {
                     event.preventDefault();
                     const name = document.getElementById('expenseName').value;
-                    const planned = document.getElementById('plannedCost').value;
-                    const actual = document.getElementById('actualCost').value;
-                    await addExpense(dayIndex, name, planned, actual);
-                    expenseModal.classList.add('hidden');
-                    expenseForm.reset();
+                    const planned = parseFloat(document.getElementById('plannedCost').value);
+                    const actual = parseFloat(document.getElementById('actualCost').value);
+                    if (!isNaN(planned) && !isNaN(actual)) {
+                        await addExpense(dayIndex, name, planned, actual);
+                        expenseModal.classList.add('hidden');
+                        expenseForm.reset();
+                    }
                 };
                 expenseModal.classList.remove('hidden');
             };
@@ -210,6 +229,9 @@
                     if (docSnap.exists()) {
                         const currentData = docSnap.data();
                         await setDoc(actualDocRef, { ...currentData, fortnightlyBudget: budget });
+                    } else {
+                         // Create a new document with the budget
+                        await setDoc(actualDocRef, { fortnightlyBudget: budget, days: [] });
                     }
                 }
             });
@@ -222,6 +244,11 @@
                 insightsOutput.classList.remove('hidden');
                 
                 try {
+                    if (!geminiApiKey) {
+                        insightsOutput.textContent = 'API key is missing. Please add it to your Vercel environment variables.';
+                        return;
+                    }
+
                     const docSnap = await getDoc(actualDocRef);
                     if (!docSnap.exists()) {
                         insightsOutput.textContent = 'No spending data found to analyze.';
@@ -234,7 +261,7 @@
                             parts: [{
                                 text: `You are a helpful financial assistant. Your goal is to provide a concise, insightful, and actionable summary of a user's spending over a two-week period. Focus on identifying patterns and providing practical advice.
 
-                                A user's fortnightly budget is $${data.fortnightlyBudget}. Here is the spending data, including planned and actual expenses, for a fortnight starting on ${formatDate(new Date(data.days[0].date))}:
+                                A user's fortnightly budget is $${parseFloat(data.fortnightlyBudget).toFixed(2)}. Here is the spending data, including planned and actual expenses:
                                 ${JSON.stringify(data.days)}
 
                                 Please provide a brief summary of the spending habits and a single, practical piece of advice. Keep the response to a maximum of three sentences. Start the response with "Based on your spending, here is a summary:"`
@@ -285,11 +312,11 @@
             <div class="grid grid-cols-2 gap-4 text-center text-white font-semibold mb-6">
                 <div class="bg-indigo-500 rounded-lg p-4 shadow-sm">
                     <p class="text-sm opacity-80">Fortnightly Budget</p>
-                    <p id="totalBudgetDisplay" class="text-2xl mt-1">$600.00</p>
+                    <p id="totalBudgetDisplay" class="text-2xl mt-1">$0.00</p>
                 </div>
                 <div class="bg-emerald-500 rounded-lg p-4 shadow-sm">
                     <p class="text-sm opacity-80">Remaining</p>
-                    <p id="remainingBudgetDisplay" class="text-2xl mt-1">$600.00</p>
+                    <p id="remainingBudgetDisplay" class="text-2xl mt-1">$0.00</p>
                 </div>
             </div>
 
@@ -306,7 +333,7 @@
                 <label for="fortnightlyBudget" class="text-sm font-medium text-gray-700 sm:mr-4 mb-2 sm:mb-0">Set Fortnightly Budget:</label>
                 <div class="flex items-center w-full sm:w-auto">
                     <span class="text-gray-500 mr-2">$</span>
-                    <input type="number" id="fortnightlyBudget" class="w-full sm:w-40 border-gray-300 rounded-lg shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50" value="600" step="10">
+                    <input type="number" id="fortnightlyBudget" class="w-full sm:w-40 border-gray-300 rounded-lg shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50" value="0" step="0.01">
                     <button type="submit" class="ml-4 bg-indigo-500 text-white font-medium py-2 px-6 rounded-full hover:bg-indigo-600 transition-colors duration-200">Update</button>
                 </div>
             </form>
@@ -316,11 +343,27 @@
                 <!-- Daily spending cards will be injected here by JavaScript -->
             </div>
 
-            <button onclick="addDay()" class="w-full bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-indigo-700 transition-colors duration-200">
+            <button onclick="openAddDayModal()" class="w-full bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-indigo-700 transition-colors duration-200">
                 Add New Day
             </button>
         </div>
         <div class="mt-4 text-center text-gray-500 text-sm" id="user-id"></div>
+    </div>
+
+    <!-- Modal for adding days -->
+    <div id="addDayModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div class="mt-3 text-center">
+                <h3 class="text-lg leading-6 font-medium text-gray-900">Choose a Day to Add</h3>
+                <div class="mt-2 px-7 py-3">
+                    <input type="date" id="dayDateInput" class="mt-2 w-full p-2 border border-gray-300 rounded-md">
+                    <div class="mt-4">
+                        <button type="button" onclick="saveNewDay()" class="bg-blue-500 text-white px-4 py-2 rounded-lg">Add Day</button>
+                        <button type="button" onclick="closeDayModal()" class="bg-gray-400 text-white px-4 py-2 rounded-lg ml-2">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Modal for adding expenses -->
@@ -331,8 +374,8 @@
                 <div class="mt-2 px-7 py-3">
                     <form id="expenseForm">
                         <input type="text" id="expenseName" placeholder="Expense Name (e.g., Fishbowl)" class="mt-2 w-full p-2 border border-gray-300 rounded-md">
-                        <input type="number" id="plannedCost" placeholder="Planned Cost ($)" class="mt-2 w-full p-2 border border-gray-300 rounded-md">
-                        <input type="number" id="actualCost" placeholder="Actual Cost ($)" class="mt-2 w-full p-2 border border-gray-300 rounded-md">
+                        <input type="number" id="plannedCost" placeholder="Planned Cost ($)" class="mt-2 w-full p-2 border border-gray-300 rounded-md" step="0.01">
+                        <input type="number" id="actualCost" placeholder="Actual Cost ($)" class="mt-2 w-full p-2 border border-gray-300 rounded-md" step="0.01">
                         <div class="mt-4">
                             <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded-lg">Save</button>
                             <button type="button" onclick="closeModal()" class="bg-gray-400 text-white px-4 py-2 rounded-lg ml-2">Cancel</button>
