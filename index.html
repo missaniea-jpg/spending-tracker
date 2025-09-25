@@ -8,49 +8,46 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <!-- Icon for the web app when added to the home screen -->
     <link rel="apple-touch-icon" sizes="180x180" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E✨%3C/text%3E%3C/svg%3E">
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
-        import { setLogLevel } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
-
-        setLogLevel('debug');
-
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-        let userId = null;
-        let actualDocRef;
-
+    <script>
+        // Set up initial state and data variables
+        const STORAGE_KEY = 'fortnightly_spending_tracker';
+        let spendingData = {
+            fortnightlyBudget: 0,
+            days: []
+        };
         const geminiApiKey = typeof GEMINI_API_KEY !== 'undefined' ? GEMINI_API_KEY : '';
         const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${geminiApiKey}`;
 
-        document.addEventListener('DOMContentLoaded', async () => {
-            const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-            if (initialAuthToken) {
-                await signInWithCustomToken(auth, initialAuthToken);
-            } else {
-                await signInAnonymously(auth);
-            }
-        });
-
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                userId = user.uid;
-                actualDocRef = doc(db, 'artifacts', appId, 'users', userId, 'spending_plan', 'fortnightly_budget');
-                document.getElementById('user-id').textContent = `User ID: ${userId}`;
-                initializeSpendingTracker();
-            } else {
-                console.log("User is signed out.");
-            }
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeSpendingTracker();
         });
 
         const formatDate = (date) => {
             if (!date) return 'N/A';
             return new Date(date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+        };
+
+        const saveSpendingData = () => {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(spendingData));
+                renderSpendingPlan();
+                updateBudgetDisplays();
+            } catch (error) {
+                console.error("Failed to save data to local storage:", error);
+            }
+        };
+
+        const loadSpendingData = () => {
+            try {
+                const storedData = localStorage.getItem(STORAGE_KEY);
+                if (storedData) {
+                    spendingData = JSON.parse(storedData);
+                }
+            } catch (error) {
+                console.error("Failed to load data from local storage:", error);
+                // Reset to default data if there's a parsing error
+                spendingData = { fortnightlyBudget: 0, days: [] };
+            }
         };
 
         const initializeSpendingTracker = () => {
@@ -63,25 +60,15 @@
             const addDayButton = document.getElementById('addDayButton');
             const saveDayButton = document.getElementById('saveDayButton');
             const closeDayModalButton = document.getElementById('closeDayModalButton');
-            const saveExpenseButton = document.getElementById('saveExpenseButton');
-            const closeExpenseModalButton = document.getElementById('closeExpenseModalButton');
-
-            onSnapshot(actualDocRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    fortnightlyBudgetInput.value = data.fortnightlyBudget;
-                    renderSpendingPlan(data.days);
-                    updateBudgetDisplays(data.fortnightlyBudget, data.days);
-                } else {
-                    fortnightlyBudgetInput.value = 0;
-                    renderSpendingPlan([]);
-                    updateBudgetDisplays(0, []);
-                }
-            });
-
-            const renderSpendingPlan = (days) => {
+            const expenseModal = document.getElementById('expenseModal');
+            const expenseForm = document.getElementById('expenseForm');
+            const addDayModal = document.getElementById('addDayModal');
+            const dayDateInput = document.getElementById('dayDateInput');
+            const budgetForm = document.getElementById('fortnightlyBudgetForm');
+            
+            const renderSpendingPlan = () => {
                 dailySpendingContainer.innerHTML = '';
-                days.forEach((day, dayIndex) => {
+                spendingData.days.forEach((day, dayIndex) => {
                     const totalPlanned = day.expenses.reduce((sum, exp) => sum + parseFloat(exp.planned || 0), 0);
                     const totalActual = day.expenses.reduce((sum, exp) => sum + parseFloat(exp.actual || 0), 0);
                     
@@ -92,10 +79,10 @@
                         <div class="flex justify-between items-center mb-4">
                             <h3 class="text-xl font-semibold text-gray-800">${formatDate(day.date)}</h3>
                             <div class="flex items-center space-x-2">
-                                <button onclick="addExpenseModal(${dayIndex})" class="bg-blue-500 text-white text-sm px-4 py-2 rounded-full hover:bg-blue-600 transition-colors duration-200">
+                                <button data-day-index="${dayIndex}" class="add-expense-btn bg-blue-500 text-white text-sm px-4 py-2 rounded-full hover:bg-blue-600 transition-colors duration-200">
                                     Add Expense
                                 </button>
-                                <button onclick="deleteDay(${dayIndex})" class="text-gray-400 hover:text-red-500 transition-colors duration-200 ml-4">
+                                <button data-day-index="${dayIndex}" class="delete-day-btn text-gray-400 hover:text-red-500 transition-colors duration-200 ml-4">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                                         <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm6 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" />
                                     </svg>
@@ -113,7 +100,7 @@
                                             Actual: <span class="${parseFloat(exp.actual) > parseFloat(exp.planned) ? 'text-red-600' : 'text-gray-600'} font-medium">$${parseFloat(exp.actual).toFixed(2)}</span>
                                         </p>
                                     </div>
-                                    <button onclick="deleteExpense(${dayIndex}, ${expIndex})" class="text-gray-400 hover:text-red-500 transition-colors duration-200 ml-4">
+                                    <button data-day-index="${dayIndex}" data-expense-index="${expIndex}" class="delete-expense-btn text-gray-400 hover:text-red-500 transition-colors duration-200 ml-4">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                                             <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm6 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" />
                                         </svg>
@@ -124,68 +111,114 @@
                     `;
                     dailySpendingContainer.appendChild(dayCard);
                 });
+                // Attach event listeners to dynamically created buttons
+                document.querySelectorAll('.add-expense-btn').forEach(button => {
+                    button.addEventListener('click', () => addExpenseModal(button.dataset.dayIndex));
+                });
+                document.querySelectorAll('.delete-day-btn').forEach(button => {
+                    button.addEventListener('click', () => deleteDay(button.dataset.dayIndex));
+                });
+                document.querySelectorAll('.delete-expense-btn').forEach(button => {
+                    button.addEventListener('click', () => deleteExpense(button.dataset.dayIndex, button.dataset.expenseIndex));
+                });
             };
 
-            const updateBudgetDisplays = (totalBudget, days) => {
-                const totalActualSpending = days.reduce((sum, day) => {
+            const updateBudgetDisplays = () => {
+                const totalActualSpending = spendingData.days.reduce((sum, day) => {
                     return sum + day.expenses.reduce((s, exp) => s + parseFloat(exp.actual || 0), 0);
                 }, 0);
-                const remainingBudget = totalBudget - totalActualSpending;
-                totalBudgetDisplay.textContent = `$${parseFloat(totalBudget).toFixed(2)}`;
+                const remainingBudget = spendingData.fortnightlyBudget - totalActualSpending;
+                totalBudgetDisplay.textContent = `$${parseFloat(spendingData.fortnightlyBudget).toFixed(2)}`;
                 remainingBudgetDisplay.textContent = `$${remainingBudget.toFixed(2)}`;
             };
 
-            // Event Listeners for buttons, ensuring they are only active after auth
-            addDayButton.addEventListener('click', async () => {
-                const docSnap = await getDoc(actualDocRef);
-                let defaultDate = new Date(); 
+            // Load data from local storage and render initial state
+            loadSpendingData();
+            renderSpendingPlan();
+            updateBudgetDisplays();
+            document.getElementById('loadingStatus').classList.add('hidden');
+            document.getElementById('user-id').classList.add('hidden'); // Hide user ID as it's not relevant
 
-                if (docSnap.exists() && docSnap.data().lastAddedDate) {
-                    const lastDate = new Date(docSnap.data().lastAddedDate);
+            // Re-enable UI elements
+            budgetForm.disabled = false;
+            addDayButton.disabled = false;
+            insightsButton.disabled = false;
+            document.querySelectorAll('#fortnightlyBudgetForm button').forEach(btn => btn.disabled = false);
+
+
+            const addExpenseModal = (dayIndex) => {
+                expenseForm.dataset.dayIndex = dayIndex;
+                expenseModal.classList.remove('hidden');
+            };
+
+            const addExpense = (dayIndex, name, planned, actual) => {
+                spendingData.days[dayIndex].expenses.push({ name, planned, actual });
+                saveSpendingData();
+            };
+
+            const deleteDay = (dayIndex) => {
+                spendingData.days.splice(dayIndex, 1);
+                saveSpendingData();
+            };
+
+            const deleteExpense = (dayIndex, expenseIndex) => {
+                spendingData.days[dayIndex].expenses.splice(expenseIndex, 1);
+                saveSpendingData();
+            };
+
+            // Event Listeners for main UI buttons
+            addDayButton.addEventListener('click', () => {
+                let defaultDate = new Date(); 
+                if (spendingData.days.length > 0) {
+                    const lastDate = new Date(spendingData.days[spendingData.days.length - 1].date);
                     lastDate.setDate(lastDate.getDate() + 1);
                     defaultDate = lastDate;
                 }
-
                 const formattedDate = defaultDate.toISOString().split('T')[0];
-                document.getElementById('dayDateInput').value = formattedDate;
-                document.getElementById('addDayModal').classList.remove('hidden');
+                dayDateInput.value = formattedDate;
+                addDayModal.classList.remove('hidden');
             });
             
-            saveDayButton.addEventListener('click', async () => {
-                const selectedDate = document.getElementById('dayDateInput').value;
-                const docSnap = await getDoc(actualDocRef);
+            saveDayButton.addEventListener('click', () => {
+                const selectedDate = dayDateInput.value;
                 const newDay = {
                     date: selectedDate,
                     expenses: []
                 };
-
-                if (docSnap.exists()) {
-                    const currentData = docSnap.data();
-                    const days = currentData.days;
-                    await setDoc(actualDocRef, { ...currentData, days: [...days, newDay], lastAddedDate: selectedDate });
-                } else {
-                    await setDoc(actualDocRef, { fortnightlyBudget: 0, days: [newDay], lastAddedDate: selectedDate });
-                }
-                document.getElementById('addDayModal').classList.add('hidden');
+                spendingData.days.push(newDay);
+                saveSpendingData();
+                addDayModal.classList.add('hidden');
             });
 
             closeDayModalButton.addEventListener('click', () => {
-                document.getElementById('addDayModal').classList.add('hidden');
+                addDayModal.classList.add('hidden');
             });
 
-            document.getElementById('fortnightlyBudgetForm').addEventListener('submit', async (e) => {
+            budgetForm.addEventListener('submit', (e) => {
                 e.preventDefault();
                 const budget = parseFloat(fortnightlyBudgetInput.value);
                 if (!isNaN(budget)) {
-                    const docSnap = await getDoc(actualDocRef);
-                    if (docSnap.exists()) {
-                        const currentData = docSnap.data();
-                        await setDoc(actualDocRef, { ...currentData, fortnightlyBudget: budget });
-                    } else {
-                         // Create a new document with the budget
-                        await setDoc(actualDocRef, { fortnightlyBudget: budget, days: [] });
-                    }
+                    spendingData.fortnightlyBudget = budget;
+                    saveSpendingData();
                 }
+            });
+
+            expenseForm.addEventListener('submit', (event) => {
+                event.preventDefault();
+                const dayIndex = expenseForm.dataset.dayIndex;
+                const name = document.getElementById('expenseName').value;
+                const planned = parseFloat(document.getElementById('plannedCost').value);
+                const actual = parseFloat(document.getElementById('actualCost').value);
+                if (!isNaN(planned) && !isNaN(actual)) {
+                    addExpense(dayIndex, name, planned, actual);
+                    expenseModal.classList.add('hidden');
+                    expenseForm.reset();
+                }
+            });
+
+            document.getElementById('closeExpenseModalButton').addEventListener('click', () => {
+                expenseModal.classList.add('hidden');
+                expenseForm.reset();
             });
 
             insightsButton.addEventListener('click', getSpendingInsights);
@@ -201,20 +234,18 @@
                         return;
                     }
 
-                    const docSnap = await getDoc(actualDocRef);
-                    if (!docSnap.exists()) {
+                    if (spendingData.days.length === 0) {
                         insightsOutput.textContent = 'No spending data found to analyze.';
                         return;
                     }
-                    const data = docSnap.data();
 
                     const prompt = {
                         contents: [{
                             parts: [{
                                 text: `You are a helpful financial assistant. Your goal is to provide a concise, insightful, and actionable summary of a user's spending over a two-week period. Focus on identifying patterns and providing practical advice.
 
-                                A user's fortnightly budget is $${parseFloat(data.fortnightlyBudget).toFixed(2)}. Here is the spending data, including planned and actual expenses:
-                                ${JSON.stringify(data.days)}
+                                A user's fortnightly budget is $${parseFloat(spendingData.fortnightlyBudget).toFixed(2)}. Here is the spending data, including planned and actual expenses:
+                                ${JSON.stringify(spendingData.days)}
 
                                 Please provide a brief summary of the spending habits and a single, practical piece of advice. Keep the response to a maximum of three sentences. Start the response with "Based on your spending, here is a summary:"`
                             }]
@@ -258,7 +289,7 @@
     <div class="max-w-4xl mx-auto py-8">
         <div class="bg-white p-8 rounded-lg shadow-md">
             <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">Fortnightly Spending Tracker</h1>
-            <p class="text-center text-gray-600 mb-6">Plan and track your discretionary spending to stay on budget.</p>
+            <p id="loadingStatus" class="text-center text-gray-500 mb-6 font-semibold">Loading app...</p>
 
             <!-- Budget Summary -->
             <div class="grid grid-cols-2 gap-4 text-center text-white font-semibold mb-6">
@@ -273,7 +304,7 @@
             </div>
 
             <div class="text-center mb-6">
-                <button id="getInsightsButton" class="bg-blue-500 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-blue-600 transition-colors duration-200">
+                <button id="getInsightsButton" disabled class="bg-blue-500 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-blue-600 transition-colors duration-200">
                     ✨ Get Spending Insights
                 </button>
             </div>
@@ -286,7 +317,7 @@
                 <div class="flex items-center w-full sm:w-auto">
                     <span class="text-gray-500 mr-2">$</span>
                     <input type="number" id="fortnightlyBudget" class="w-full sm:w-40 border-gray-300 rounded-lg shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50" value="0" step="0.01">
-                    <button type="submit" class="ml-4 bg-indigo-500 text-white font-medium py-2 px-6 rounded-full hover:bg-indigo-600 transition-colors duration-200">Update</button>
+                    <button type="submit" disabled class="ml-4 bg-indigo-500 text-white font-medium py-2 px-6 rounded-full hover:bg-indigo-600 transition-colors duration-200">Update</button>
                 </div>
             </form>
 
@@ -295,7 +326,7 @@
                 <!-- Daily spending cards will be injected here by JavaScript -->
             </div>
 
-            <button id="addDayButton" class="w-full bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-indigo-700 transition-colors duration-200">
+            <button id="addDayButton" disabled class="w-full bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-indigo-700 transition-colors duration-200">
                 Add New Day
             </button>
         </div>
