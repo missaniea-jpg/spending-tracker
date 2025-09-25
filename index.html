@@ -25,6 +25,7 @@
         let userId = null;
 
         const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=`;
+        const docRef = doc(db, 'artifacts', appId, 'users', 'userId_placeholder', 'spending_plan', 'fortnightly_budget');
 
         document.addEventListener('DOMContentLoaded', async () => {
             const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
@@ -38,8 +39,10 @@
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 userId = user.uid;
+                // Update the docRef with the actual userId
+                const actualDocRef = doc(db, 'artifacts', appId, 'users', userId, 'spending_plan', 'fortnightly_budget');
                 document.getElementById('user-id').textContent = `User ID: ${userId}`;
-                initializeSpendingTracker();
+                initializeSpendingTracker(actualDocRef);
             } else {
                 // User is signed out.
                 console.log("User is signed out.");
@@ -50,7 +53,7 @@
             return date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
         };
 
-        const initializeSpendingTracker = () => {
+        const initializeSpendingTracker = (actualDocRef) => {
             const fortnightlyBudgetInput = document.getElementById('fortnightlyBudget');
             const dailySpendingContainer = document.getElementById('dailySpendingContainer');
             const totalBudgetDisplay = document.getElementById('totalBudgetDisplay');
@@ -58,9 +61,7 @@
             const insightsButton = document.getElementById('getInsightsButton');
             const insightsOutput = document.getElementById('insightsOutput');
 
-            const docRef = doc(db, 'artifacts', appId, 'users', userId, 'spending_plan', 'fortnightly_budget');
-
-            onSnapshot(docRef, (docSnap) => {
+            onSnapshot(actualDocRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const data = docSnap.data();
                     fortnightlyBudgetInput.value = data.fortnightlyBudget;
@@ -92,7 +93,7 @@
                             expenses: expenses
                         });
                     }
-                    setDoc(docRef, { fortnightlyBudget: 600, days: initialDays });
+                    setDoc(actualDocRef, { fortnightlyBudget: 600, days: initialDays });
                 }
             });
 
@@ -150,6 +151,7 @@
                 remainingBudgetDisplay.textContent = `$${remainingBudget.toFixed(2)}`;
             };
 
+            // Making functions global so they can be called from the HTML buttons
             window.addDay = async () => {
                 const docSnap = await getDocs(collection(db, 'artifacts', appId, 'users', userId, 'spending_plan'));
                 const currentData = docSnap.docs[0].data();
@@ -163,18 +165,18 @@
                     expenses: []
                 };
 
-                await setDoc(docRef, { ...currentData, days: [...days, newDay] });
+                await setDoc(actualDocRef, { ...currentData, days: [...days, newDay] });
             };
 
             window.addExpenseModal = (dayIndex) => {
                 const expenseModal = document.getElementById('expenseModal');
                 const expenseForm = document.getElementById('expenseForm');
-                expenseForm.onsubmit = (event) => {
+                expenseForm.onsubmit = async (event) => {
                     event.preventDefault();
                     const name = document.getElementById('expenseName').value;
                     const planned = document.getElementById('plannedCost').value;
                     const actual = document.getElementById('actualCost').value;
-                    addExpense(dayIndex, name, planned, actual);
+                    await addExpense(dayIndex, name, planned, actual);
                     expenseModal.classList.add('hidden');
                     expenseForm.reset();
                 };
@@ -191,7 +193,7 @@
                 const currentData = docSnap.docs[0].data();
                 const days = currentData.days;
                 days[dayIndex].expenses.push({ name, planned, actual });
-                await setDoc(docRef, { ...currentData, days });
+                await setDoc(actualDocRef, { ...currentData, days });
             };
 
             window.deleteExpense = async (dayIndex, expenseIndex) => {
@@ -199,7 +201,7 @@
                 const currentData = docSnap.docs[0].data();
                 const days = currentData.days;
                 days[dayIndex].expenses.splice(expenseIndex, 1);
-                await setDoc(docRef, { ...currentData, days });
+                await setDoc(actualDocRef, { ...currentData, days });
             };
 
             document.getElementById('fortnightlyBudgetForm').addEventListener('submit', async (e) => {
@@ -208,7 +210,7 @@
                 if (!isNaN(budget)) {
                     const docSnap = await getDocs(collection(db, 'artifacts', appId, 'users', userId, 'spending_plan'));
                     const currentData = docSnap.docs[0].data();
-                    await setDoc(docRef, { ...currentData, fortnightlyBudget: budget });
+                    await setDoc(actualDocRef, { ...currentData, fortnightlyBudget: budget });
                 }
             });
 
@@ -217,6 +219,7 @@
             async function getSpendingInsights() {
                 insightsButton.disabled = true;
                 insightsOutput.textContent = 'Generating insights...';
+                insightsOutput.classList.remove('hidden');
                 
                 try {
                     const docSnap = await getDocs(collection(db, 'artifacts', appId, 'users', userId, 'spending_plan'));
