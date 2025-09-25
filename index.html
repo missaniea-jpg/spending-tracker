@@ -60,6 +60,11 @@
             const remainingBudgetDisplay = document.getElementById('remainingBudgetDisplay');
             const insightsButton = document.getElementById('getInsightsButton');
             const insightsOutput = document.getElementById('insightsOutput');
+            const addDayButton = document.getElementById('addDayButton');
+            const saveDayButton = document.getElementById('saveDayButton');
+            const closeDayModalButton = document.getElementById('closeDayModalButton');
+            const saveExpenseButton = document.getElementById('saveExpenseButton');
+            const closeExpenseModalButton = document.getElementById('closeExpenseModalButton');
 
             onSnapshot(actualDocRef, (docSnap) => {
                 if (docSnap.exists()) {
@@ -130,34 +135,23 @@
                 remainingBudgetDisplay.textContent = `$${remainingBudget.toFixed(2)}`;
             };
 
-            window.deleteDay = async (dayIndex) => {
+            // Event Listeners for buttons, ensuring they are only active after auth
+            addDayButton.addEventListener('click', async () => {
                 const docSnap = await getDoc(actualDocRef);
-                if (docSnap.exists()) {
-                    const currentData = docSnap.data();
-                    const days = currentData.days;
-                    days.splice(dayIndex, 1);
-                    await setDoc(actualDocRef, { ...currentData, days });
-                }
-            };
-
-            window.openAddDayModal = async () => {
-                const docSnap = await getDoc(actualDocRef);
-                let defaultDate = new Date(); // Defaults to today
+                let defaultDate = new Date(); 
 
                 if (docSnap.exists() && docSnap.data().lastAddedDate) {
                     const lastDate = new Date(docSnap.data().lastAddedDate);
-                    // Add one day to the last added date
                     lastDate.setDate(lastDate.getDate() + 1);
                     defaultDate = lastDate;
                 }
 
-                // Format the date to YYYY-MM-DD for the input field
                 const formattedDate = defaultDate.toISOString().split('T')[0];
                 document.getElementById('dayDateInput').value = formattedDate;
                 document.getElementById('addDayModal').classList.remove('hidden');
-            };
+            });
             
-            window.saveNewDay = async () => {
+            saveDayButton.addEventListener('click', async () => {
                 const selectedDate = document.getElementById('dayDateInput').value;
                 const docSnap = await getDoc(actualDocRef);
                 const newDay = {
@@ -172,54 +166,12 @@
                 } else {
                     await setDoc(actualDocRef, { fortnightlyBudget: 0, days: [newDay], lastAddedDate: selectedDate });
                 }
-                closeDayModal();
-            };
-
-            window.closeDayModal = () => {
                 document.getElementById('addDayModal').classList.add('hidden');
-            };
+            });
 
-            window.addExpenseModal = (dayIndex) => {
-                const expenseModal = document.getElementById('expenseModal');
-                const expenseForm = document.getElementById('expenseForm');
-                expenseForm.onsubmit = async (event) => {
-                    event.preventDefault();
-                    const name = document.getElementById('expenseName').value;
-                    const planned = parseFloat(document.getElementById('plannedCost').value);
-                    const actual = parseFloat(document.getElementById('actualCost').value);
-                    if (!isNaN(planned) && !isNaN(actual)) {
-                        await addExpense(dayIndex, name, planned, actual);
-                        expenseModal.classList.add('hidden');
-                        expenseForm.reset();
-                    }
-                };
-                expenseModal.classList.remove('hidden');
-            };
-
-            window.closeModal = () => {
-                document.getElementById('expenseModal').classList.add('hidden');
-                document.getElementById('expenseForm').reset();
-            };
-
-            const addExpense = async (dayIndex, name, planned, actual) => {
-                const docSnap = await getDoc(actualDocRef);
-                if (docSnap.exists()) {
-                    const currentData = docSnap.data();
-                    const days = currentData.days;
-                    days[dayIndex].expenses.push({ name, planned, actual });
-                    await setDoc(actualDocRef, { ...currentData, days });
-                }
-            };
-
-            window.deleteExpense = async (dayIndex, expenseIndex) => {
-                const docSnap = await getDoc(actualDocRef);
-                if (docSnap.exists()) {
-                    const currentData = docSnap.data();
-                    const days = currentData.days;
-                    days[dayIndex].expenses.splice(expenseIndex, 1);
-                    await setDoc(actualDocRef, { ...currentData, days });
-                }
-            };
+            closeDayModalButton.addEventListener('click', () => {
+                document.getElementById('addDayModal').classList.add('hidden');
+            });
 
             document.getElementById('fortnightlyBudgetForm').addEventListener('submit', async (e) => {
                 e.preventDefault();
@@ -343,7 +295,7 @@
                 <!-- Daily spending cards will be injected here by JavaScript -->
             </div>
 
-            <button onclick="openAddDayModal()" class="w-full bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-indigo-700 transition-colors duration-200">
+            <button id="addDayButton" class="w-full bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-indigo-700 transition-colors duration-200">
                 Add New Day
             </button>
         </div>
@@ -358,8 +310,8 @@
                 <div class="mt-2 px-7 py-3">
                     <input type="date" id="dayDateInput" class="mt-2 w-full p-2 border border-gray-300 rounded-md">
                     <div class="mt-4">
-                        <button type="button" onclick="saveNewDay()" class="bg-blue-500 text-white px-4 py-2 rounded-lg">Add Day</button>
-                        <button type="button" onclick="closeDayModal()" class="bg-gray-400 text-white px-4 py-2 rounded-lg ml-2">Cancel</button>
+                        <button type="button" id="saveDayButton" class="bg-blue-500 text-white px-4 py-2 rounded-lg">Add Day</button>
+                        <button type="button" id="closeDayModalButton" class="bg-gray-400 text-white px-4 py-2 rounded-lg ml-2">Cancel</button>
                     </div>
                 </div>
             </div>
@@ -377,8 +329,8 @@
                         <input type="number" id="plannedCost" placeholder="Planned Cost ($)" class="mt-2 w-full p-2 border border-gray-300 rounded-md" step="0.01">
                         <input type="number" id="actualCost" placeholder="Actual Cost ($)" class="mt-2 w-full p-2 border border-gray-300 rounded-md" step="0.01">
                         <div class="mt-4">
-                            <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded-lg">Save</button>
-                            <button type="button" onclick="closeModal()" class="bg-gray-400 text-white px-4 py-2 rounded-lg ml-2">Cancel</button>
+                            <button type="submit" id="saveExpenseButton" class="bg-blue-500 text-white px-4 py-2 rounded-lg">Save</button>
+                            <button type="button" id="closeExpenseModalButton" class="bg-gray-400 text-white px-4 py-2 rounded-lg ml-2">Cancel</button>
                         </div>
                     </form>
                 </div>
